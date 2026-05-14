@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -41,10 +41,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 
 /* Param rows */
 .p-cmd { font-family:'SF Mono',monospace; font-weight:600; font-size:13.5px; margin-bottom:3px; }
-.p-req, .p-opt { padding:1px 0; display:flex; align-items:baseline; gap:0; }
-.p-lbl { color:#555; white-space:nowrap; }
+.p-row { padding:1px 0; display:flex; align-items:baseline; }
 
-/* Native <input> for param values — blends into the line */
+/* Label — contenteditable=false prevents cursor from entering */
+.p-lbl { color:#555; white-space:nowrap; user-select:none; }
+
+/* Native input — blends into the line */
 input.p-val {
   border: none;
   outline: none;
@@ -56,14 +58,19 @@ input.p-val {
   padding: 0;
   margin: 0;
   min-width: 140px;
-  width: auto;
   flex: 1;
 }
 input.p-val::placeholder { color: #ccc; }
-input.p-val:not([data-req]) { color: #777; }
+input.p-val.optional { color: #777; }
 
-/* Collapsed optional row */
-.p-opt-collapsed { padding:1px 0; color:#ccc; font-style:italic; }
+/* Collapsed optional row — click to expand */
+.p-opt-collapsed {
+  padding: 1px 0;
+  color: #ccc;
+  font-style: italic;
+  cursor: text;
+}
+.p-opt-collapsed:hover { color: #aaa; }
 
 .sbtn { width:32px; height:32px; flex-shrink:0; border-radius:50%; background:#2d2d2d; color:#fff; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; opacity:.18; transition:opacity .15s; margin-bottom:1px; }
 .sbtn.on { opacity:1; }
@@ -102,16 +109,16 @@ const SKILLS = [{
   name: 'pptx',
   desc: 'Create a PowerPoint presentation',
   params: [
-    { key: 'topic',    vph: 'e.g. AI Trends 2025',             req: true  },
-    { key: 'slides',   vph: 'Number of slides (e.g. 10)',       req: false },
-    { key: 'audience', vph: 'Target audience (e.g. managers)',  req: false }
+    { key: 'topic',    vph: 'e.g. AI Trends 2025',            req: true  },
+    { key: 'slides',   vph: 'Number of slides (e.g. 10)',      req: false },
+    { key: 'audience', vph: 'Target audience (e.g. managers)', req: false }
   ]
 }];
 
 let mode = 'text';
 let filtered = SKILLS;
 
-/* ── INPUT (text mode) ───────────────────────────────────────── */
+/* ── TEXT MODE INPUT ───────────────────────────────────────── */
 editor.addEventListener('input', () => {
   if (mode === 'params') { setSend(); return; }
   setSend();
@@ -141,36 +148,27 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && e.target.tagName !== 'INPUT') {
     e.preventDefault(); send();
   }
-  if (e.key === 'Tab') {
+  // Tab on editor (not inside an input) expands collapsed optional rows
+  if (e.key === 'Tab' && e.target.tagName !== 'INPUT') {
     const collapsed = editor.querySelectorAll('.p-opt-collapsed');
-    if (collapsed.length) {
-      e.preventDefault();
-      collapsed.forEach(div => expandOpt(div));
-      const first = editor.querySelector('.p-opt input.p-val');
-      if (first) first.focus();
-    }
+    if (collapsed.length) { e.preventDefault(); expandAllOpt(); }
   }
 });
 
-/* Enter inside an input also sends */
-editor.addEventListener('keydown', e => {
-  if (mode === 'params' && e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault(); send();
-  }
-});
-
-/* ── SUGGESTIONS ──────────────────────────────────────────────── */
+/* ── SUGGESTIONS ────────────────────────────────────────────── */
 function renderSugg() {
   slist.innerHTML = '';
   filtered.forEach((sk, i) => {
     const d = mk('div', 'sugg-item' + (i === 0 ? ' hi' : ''));
-    d.innerHTML = '<span class="sugg-cmd">/' + sk.name + '</span><span class="sugg-desc">' + sk.desc + '</span><span class="sugg-kb">↵ Tab</span>';
+    d.innerHTML = '<span class="sugg-cmd">/' + sk.name + '</span>'
+                + '<span class="sugg-desc">' + sk.desc + '</span>'
+                + '<span class="sugg-kb">↵ Tab</span>';
     d.addEventListener('mousedown', e => { e.preventDefault(); activate(sk); });
     slist.appendChild(d);
   });
 }
 
-/* ── ACTIVATE ─────────────────────────────────────────────────── */
+/* ── ACTIVATE ───────────────────────────────────────────────── */
 function activate(sk) {
   sugg.classList.remove('open');
   mode = 'params';
@@ -181,18 +179,9 @@ function activate(sk) {
 
   sk.params.forEach(p => {
     if (p.req) {
-      const row = mk('div', 'p-req');
-      const lbl = mk('span', 'p-lbl'); lbl.textContent = '• ' + p.key + ': ';
-      const val = mk('input'); val.type = 'text'; val.className = 'p-val';
-      val.placeholder = p.vph; val.dataset.key = p.key; val.dataset.req = '1';
-      val.addEventListener('input', setSend);
-      row.appendChild(lbl); row.appendChild(val);
-      editor.appendChild(row);
+      editor.appendChild(makeParamRow(p.key, p.vph, true));
     } else {
-      const row = mk('div', 'p-opt-collapsed');
-      row.dataset.key = p.key; row.dataset.vph = p.vph;
-      row.textContent = '• ' + p.key + ': ' + p.vph;
-      editor.appendChild(row);
+      editor.appendChild(makeCollapsed(p.key, p.vph));
     }
   });
 
@@ -202,17 +191,94 @@ function activate(sk) {
   setHint('Tab to expand optional fields · Esc to cancel');
 }
 
-function expandOpt(div) {
-  const row = mk('div', 'p-opt');
-  const lbl = mk('span', 'p-lbl'); lbl.textContent = '• ' + div.dataset.key + ': ';
-  const val = mk('input'); val.type = 'text'; val.className = 'p-val';
-  val.placeholder = div.dataset.vph; val.dataset.key = div.dataset.key;
+/* Build a param row: [non-editable label][input] */
+function makeParamRow(key, vph, required) {
+  const row = mk('div', 'p-row');
+  row.dataset.key = key;
+
+  const lbl = mk('span', 'p-lbl');
+  lbl.setAttribute('contenteditable', 'false'); // cursor cannot enter the label
+  lbl.textContent = '• ' + key + ': ';
+
+  const val = mk('input');
+  val.type = 'text';
+  val.className = 'p-val' + (required ? '' : ' optional');
+  val.placeholder = vph;
+  val.dataset.key = key;
+  if (required) val.dataset.req = '1';
+
   val.addEventListener('input', setSend);
-  row.appendChild(lbl); row.appendChild(val);
-  div.replaceWith(row);
+
+  val.addEventListener('keydown', e => {
+    if (e.key === 'Backspace' && val.value === '') {
+      e.preventDefault(); // stop contenteditable from deleting the row itself
+      if (!required) {
+        // collapse back to placeholder text
+        const prev = getPrevInput(val);
+        row.replaceWith(makeCollapsed(key, vph));
+        if (prev) prev.focus(); else editor.focus();
+        setSend();
+      }
+      // for required fields: just block — don't delete anything
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const collapsed = editor.querySelectorAll('.p-opt-collapsed');
+      if (collapsed.length) {
+        expandAllOpt();
+      } else {
+        // cycle to next input
+        const next = getNextInput(val);
+        if (next) next.focus();
+      }
+    }
+  });
+
+  row.appendChild(lbl);
+  row.appendChild(val);
+  return row;
 }
 
-/* ── SEND ──────────────────────────────────────────────────────── */
+/* Collapsed optional placeholder */
+function makeCollapsed(key, vph) {
+  const div = mk('div', 'p-opt-collapsed');
+  div.dataset.key = key;
+  div.dataset.vph = vph;
+  div.textContent = '• ' + key + ': ' + vph;
+  div.addEventListener('click', () => {
+    const row = makeParamRow(key, vph, false);
+    div.replaceWith(row);
+    row.querySelector('input').focus();
+    setSend();
+  });
+  return div;
+}
+
+function expandAllOpt() {
+  editor.querySelectorAll('.p-opt-collapsed').forEach(div => {
+    const row = makeParamRow(div.dataset.key, div.dataset.vph, false);
+    div.replaceWith(row);
+  });
+  const first = editor.querySelector('input.p-val:not([data-req])');
+  if (first) first.focus();
+  setHint('Fill optional fields or leave empty · Backspace on empty field removes it · Esc to cancel');
+  setSend();
+}
+
+function getPrevInput(current) {
+  const all = [...editor.querySelectorAll('input.p-val')];
+  const idx = all.indexOf(current);
+  return idx > 0 ? all[idx - 1] : null;
+}
+
+function getNextInput(current) {
+  const all = [...editor.querySelectorAll('input.p-val')];
+  const idx = all.indexOf(current);
+  return idx < all.length - 1 ? all[idx + 1] : null;
+}
+
+/* ── SEND ───────────────────────────────────────────────────── */
 function send() {
   if (mode === 'params') {
     const missing = [...editor.querySelectorAll('input.p-val[data-req="1"]')].filter(v => !v.value.trim());
@@ -222,7 +288,7 @@ function send() {
     editor.querySelectorAll('input.p-val[data-req="1"]').forEach(v => {
       prompt += ' ' + v.dataset.key + '="' + v.value.trim() + '"';
     });
-    editor.querySelectorAll('.p-opt input.p-val').forEach(v => {
+    editor.querySelectorAll('input.p-val:not([data-req])').forEach(v => {
       const t = v.value.trim();
       if (t) prompt += ' ' + v.dataset.key + '="' + t + '"';
     });
@@ -237,18 +303,19 @@ function send() {
   }
 }
 
-/* ── CLEAR ─────────────────────────────────────────────────────── */
+/* ── CLEAR ──────────────────────────────────────────────────── */
 function clear() {
   editor.innerHTML = '';
   mode = 'text'; filtered = SKILLS;
   sugg.classList.remove('open'); setHint(''); setSend(); editor.focus();
 }
 
-/* ── UTILS ─────────────────────────────────────────────────────── */
+/* ── UTILS ──────────────────────────────────────────────────── */
 function mk(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
 function setSend() {
-  const hasReqValues = [...editor.querySelectorAll('input.p-val[data-req="1"]')].every(v => v.value.trim().length > 0);
-  sbtn.classList.toggle('on', mode === 'params' ? hasReqValues : editor.textContent.trim().length > 0);
+  const reqInputs = [...editor.querySelectorAll('input.p-val[data-req="1"]')];
+  const allFilled = reqInputs.length === 0 || reqInputs.every(v => v.value.trim().length > 0);
+  sbtn.classList.toggle('on', mode === 'params' ? allFilled : editor.textContent.trim().length > 0);
 }
 function setHint(m) { hintEl.textContent = m; }
 function addMsg(role, html) {
