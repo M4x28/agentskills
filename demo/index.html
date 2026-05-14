@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Skill Parameters — Demo</title>
+<title>Skill Parameters – Demo</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f4ef; color: #1a1a1a; height: 100vh; display: flex; flex-direction: column; font-size: 14px; }
@@ -32,20 +32,38 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .sugg-desc { font-size:12.5px; color:#888; }
 .sugg-kb   { margin-left:auto; font-size:10.5px; color:#c5c0b8; }
 
-/* Input box — single editing host */
+/* Input box */
 .ibox { background:#fff; border:1px solid #ddd9d2; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,0.05); padding:10px 10px 10px 15px; display:flex; align-items:flex-end; gap:8px; transition:border-color .15s,box-shadow .15s; }
 .ibox:focus-within { border-color:#c8c4bc; box-shadow:0 1px 6px rgba(0,0,0,0.08); }
 
 #editor { flex:1; min-height:22px; max-height:200px; overflow-y:auto; outline:none; font-size:14px; font-family:inherit; line-height:1.6; padding:2px 0; }
 #editor:empty::before { content:'Type a message or /skill-name…'; color:#c4c0b8; pointer-events:none; }
 
-/* Param rows — all part of the single editing host, no extra contenteditable */
+/* Param rows */
 .p-cmd { font-family:'SF Mono',monospace; font-weight:600; font-size:13.5px; margin-bottom:3px; }
-.p-req { padding:1px 0; }
-.p-rval { display:inline; }
-.p-rval[data-ph]:empty::before { content:attr(data-ph); color:#ccc; font-style:italic; pointer-events:none; }
-.p-opt  { padding:1px 0; }
-.p-opt[data-ph]:empty::before  { content:attr(data-ph); color:#ccc; pointer-events:none; }
+.p-req, .p-opt { padding:1px 0; display:flex; align-items:baseline; gap:0; }
+.p-lbl { color:#555; white-space:nowrap; }
+
+/* Native <input> for param values — blends into the line */
+input.p-val {
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-style: italic;
+  color: #1a1a1a;
+  padding: 0;
+  margin: 0;
+  min-width: 140px;
+  width: auto;
+  flex: 1;
+}
+input.p-val::placeholder { color: #ccc; }
+input.p-val:not([data-req]) { color: #777; }
+
+/* Collapsed optional row */
+.p-opt-collapsed { padding:1px 0; color:#ccc; font-style:italic; }
 
 .sbtn { width:32px; height:32px; flex-shrink:0; border-radius:50%; background:#2d2d2d; color:#fff; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:12px; opacity:.18; transition:opacity .15s; margin-bottom:1px; }
 .sbtn.on { opacity:1; }
@@ -66,7 +84,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
     <div id="sugg-list"></div>
   </div>
   <div class="ibox">
-    <!-- Single contenteditable div — one editing host, always -->
     <div id="editor" contenteditable="true" spellcheck="false"></div>
     <button class="sbtn" id="sbtn">&#9658;</button>
   </div>
@@ -121,21 +138,28 @@ editor.addEventListener('keydown', e => {
 document.addEventListener('keydown', e => {
   if (mode !== 'params') return;
   if (e.key === 'Escape') { e.preventDefault(); clear(); }
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  if (e.key === 'Enter' && !e.shiftKey && e.target.tagName !== 'INPUT') {
+    e.preventDefault(); send();
+  }
   if (e.key === 'Tab') {
-    e.preventDefault();
-    /* One-shot: expand all optional placeholder rows into editable structure */
-    editor.querySelectorAll('.p-opt:not([data-expanded])').forEach(div => {
-      div.innerHTML = '';
-      const lbl = mk('span'); lbl.textContent = '• ' + div.dataset.key + ': '; lbl.style.color = '#555';
-      const val = mk('span', 'p-rval'); val.dataset.ph = div.dataset.vph; val.dataset.key = div.dataset.key;
-      div.appendChild(lbl); div.appendChild(val);
-      div.dataset.expanded = '1';
-    });
+    const collapsed = editor.querySelectorAll('.p-opt-collapsed');
+    if (collapsed.length) {
+      e.preventDefault();
+      collapsed.forEach(div => expandOpt(div));
+      const first = editor.querySelector('.p-opt input.p-val');
+      if (first) first.focus();
+    }
   }
 });
 
-/* ── SUGGESTIONS ─────────────────────────────────────────────── */
+/* Enter inside an input also sends */
+editor.addEventListener('keydown', e => {
+  if (mode === 'params' && e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault(); send();
+  }
+});
+
+/* ── SUGGESTIONS ──────────────────────────────────────────────── */
 function renderSugg() {
   slist.innerHTML = '';
   filtered.forEach((sk, i) => {
@@ -146,11 +170,11 @@ function renderSugg() {
   });
 }
 
-/* ── ACTIVATE ────────────────────────────────────────────────── */
+/* ── ACTIVATE ─────────────────────────────────────────────────── */
 function activate(sk) {
   sugg.classList.remove('open');
   mode = 'params';
-  editor.innerHTML = ''; // keep editor.contentEditable = 'true' always
+  editor.innerHTML = '';
 
   const cmd = mk('div', 'p-cmd'); cmd.textContent = '/' + sk.name;
   editor.appendChild(cmd);
@@ -158,43 +182,49 @@ function activate(sk) {
   sk.params.forEach(p => {
     if (p.req) {
       const row = mk('div', 'p-req');
-      const lbl = mk('span'); lbl.textContent = '• ' + p.key + ': '; lbl.style.color = '#555';
-      const val = mk('span', 'p-rval'); val.dataset.ph = p.vph; val.dataset.key = p.key; val.dataset.req = '1';
+      const lbl = mk('span', 'p-lbl'); lbl.textContent = '• ' + p.key + ': ';
+      const val = mk('input'); val.type = 'text'; val.className = 'p-val';
+      val.placeholder = p.vph; val.dataset.key = p.key; val.dataset.req = '1';
+      val.addEventListener('input', setSend);
       row.appendChild(lbl); row.appendChild(val);
       editor.appendChild(row);
     } else {
-      const row = mk('div', 'p-opt');
-      row.dataset.ph  = '• ' + p.key + ': ' + p.vph;
-      row.dataset.key = p.key;
-      row.dataset.vph = p.vph;
+      const row = mk('div', 'p-opt-collapsed');
+      row.dataset.key = p.key; row.dataset.vph = p.vph;
+      row.textContent = '• ' + p.key + ': ' + p.vph;
       editor.appendChild(row);
     }
   });
 
-  /* Place cursor inside first required value — single editing host, just move selection */
-  const firstVal = editor.querySelector('.p-rval');
-  if (firstVal) moveCaret(firstVal);
+  const firstInput = editor.querySelector('input.p-val');
+  if (firstInput) firstInput.focus();
   setSend();
   setHint('Tab to expand optional fields · Esc to cancel');
 }
 
-function moveCaret(el) {
-  editor.focus();
-  const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
-  const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+function expandOpt(div) {
+  const row = mk('div', 'p-opt');
+  const lbl = mk('span', 'p-lbl'); lbl.textContent = '• ' + div.dataset.key + ': ';
+  const val = mk('input'); val.type = 'text'; val.className = 'p-val';
+  val.placeholder = div.dataset.vph; val.dataset.key = div.dataset.key;
+  val.addEventListener('input', setSend);
+  row.appendChild(lbl); row.appendChild(val);
+  div.replaceWith(row);
 }
 
-/* ── SEND ────────────────────────────────────────────────────── */
+/* ── SEND ──────────────────────────────────────────────────────── */
 function send() {
   if (mode === 'params') {
-    const missing = [...editor.querySelectorAll('.p-rval[data-req="1"]')].filter(v => !v.textContent.trim());
-    if (missing.length) { moveCaret(missing[0]); setHint('Please fill in the required fields before sending'); return; }
+    const missing = [...editor.querySelectorAll('input.p-val[data-req="1"]')].filter(v => !v.value.trim());
+    if (missing.length) { missing[0].focus(); setHint('Please fill in the required fields before sending'); return; }
 
     let prompt = '/' + editor.querySelector('.p-cmd').textContent.slice(1);
-    editor.querySelectorAll('.p-rval[data-req="1"]').forEach(v => { prompt += ' ' + v.dataset.key + '="' + v.textContent.trim() + '"'; });
-    editor.querySelectorAll('.p-opt[data-expanded]').forEach(o => {
-      const v = o.querySelector('.p-rval'); const t = v ? v.textContent.trim() : '';
-      if (t) prompt += ' ' + o.dataset.key + '="' + t + '"';
+    editor.querySelectorAll('input.p-val[data-req="1"]').forEach(v => {
+      prompt += ' ' + v.dataset.key + '="' + v.value.trim() + '"';
+    });
+    editor.querySelectorAll('.p-opt input.p-val').forEach(v => {
+      const t = v.value.trim();
+      if (t) prompt += ' ' + v.dataset.key + '="' + t + '"';
     });
 
     addMsg('user', x(prompt));
@@ -207,16 +237,19 @@ function send() {
   }
 }
 
-/* ── CLEAR ───────────────────────────────────────────────────── */
+/* ── CLEAR ─────────────────────────────────────────────────────── */
 function clear() {
-  editor.innerHTML = ''; // contentEditable stays 'true' — no toggle needed
+  editor.innerHTML = '';
   mode = 'text'; filtered = SKILLS;
   sugg.classList.remove('open'); setHint(''); setSend(); editor.focus();
 }
 
-/* ── UTILS ───────────────────────────────────────────────────── */
+/* ── UTILS ─────────────────────────────────────────────────────── */
 function mk(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
-function setSend() { sbtn.classList.toggle('on', mode === 'params' || editor.textContent.trim().length > 0); }
+function setSend() {
+  const hasReqValues = [...editor.querySelectorAll('input.p-val[data-req="1"]')].every(v => v.value.trim().length > 0);
+  sbtn.classList.toggle('on', mode === 'params' ? hasReqValues : editor.textContent.trim().length > 0);
+}
 function setHint(m) { hintEl.textContent = m; }
 function addMsg(role, html) {
   const row = mk('div','crow'), msg = mk('div','msg '+role);
