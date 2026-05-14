@@ -1,4 +1,4 @@
----
+﻿---
 title: "Specification"
 description: "The complete format specification for Agent Skills."
 ---
@@ -9,11 +9,11 @@ A skill is a directory containing, at minimum, a `SKILL.md` file:
 
 ```
 skill-name/
-├── SKILL.md          # Required: metadata + instructions
-├── scripts/          # Optional: executable code
-├── references/       # Optional: documentation
-├── assets/           # Optional: templates, resources
-└── ...               # Any additional files or directories
+â”œâ”€â”€ SKILL.md          # Required: metadata + instructions
+â”œâ”€â”€ scripts/          # Optional: executable code
+â”œâ”€â”€ references/       # Optional: documentation
+â”œâ”€â”€ assets/           # Optional: templates, resources
+â””â”€â”€ ...               # Any additional files or directories
 ```
 
 ## `SKILL.md` format
@@ -197,7 +197,9 @@ parameters:
 ```
 </Card>
 
-> Clients that do not implement this extension safely ignore the `parameters:` key.
+<Note>
+Clients that do not implement this extension safely ignore the `parameters:` key and invoke the skill normally.
+</Note>
 
 ### Body content
 
@@ -269,3 +271,4 @@ skills-ref validate ./my-skill
 ```
 
 This checks that your `SKILL.md` frontmatter is valid and follows all naming conventions.
+
