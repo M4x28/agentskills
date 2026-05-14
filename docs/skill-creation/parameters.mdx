@@ -1,0 +1,139 @@
+---
+title: Skill Parameters
+description: Add structured parameter definitions to your SKILL.md so supporting clients can render a guided prompt template when users invoke your skill.
+---
+
+# Skill Parameters
+
+The `parameters` frontmatter key is an optional extension to the Agent Skills spec
+that lets **supporting clients** render a guided prompt template when a user invokes
+your skill via `/skill-name`.
+
+This removes the need for the model to guess missing context or ask follow-up
+questions, improving output quality and reducing latency — especially for
+non-technical users who don't know what information a skill needs.
+
+> **Backwards compatible.** Clients that do not implement this extension safely
+> ignore the `parameters:` key and invoke the skill normally.
+
+---
+
+## Schema
+
+```yaml
+---
+name: your-skill
+description: >
+  What the skill does and when to invoke it.
+
+parameters:
+  required:
+    - name: param_name
+      description: "Human-readable hint shown to the user (≤120 chars)"
+  optional:
+    - name: another_param
+      description: "What this optional input controls"
+      default: "sensible default"
+---
+```
+
+### Field reference
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `parameters` | mapping | No | Omit entirely for parameter-free skills |
+| `parameters.required` | list | No | Params the skill needs to function |
+| `parameters.optional` | list | No | Params that improve output but have defaults |
+| `name` | string | Yes (per param) | Snake_case identifier (`company_name`, `depth`) |
+| `description` | string | Yes (per param) | Shown as inline hint; keep it ≤120 characters |
+| `default` | string | No | Only on optional params; shown as pre-filled value |
+
+### Rules
+
+1. `name` must be unique within a skill's parameter list (across both `required` and `optional`).
+2. `description` should be ≤120 characters — it appears inline as a hint to the user.
+3. `default` values are always strings; the model interprets the semantic type.
+4. A skill with zero parameters omits the `parameters:` key entirely.
+5. Order within `required` and `optional` arrays defines display order in the UI.
+
+---
+
+## How supporting clients behave
+
+When a user types `/skill-name` in a supporting client:
+
+1. The client parses the `parameters:` block from your SKILL.md frontmatter.
+2. A guided prompt template appears inline in the chat input:
+   - **Required params** are shown with an empty highlighted placeholder.
+   - **Optional params** appear dimmed with their `default` value pre-filled.
+   - Each param's `description` is shown as an inline hint.
+3. The user fills in values and submits. The composed string is sent as the
+   user message; the SKILL.md body is injected as context as normal.
+
+---
+
+## Fallback for non-supporting clients
+
+Include a `## Parameters` section in your SKILL.md body. The model reads this
+and prompts the user interactively for any missing inputs.
+
+```markdown
+## Parameters
+
+**Required**
+- `topic` — Main subject or title of the presentation
+
+**Optional**
+- `slides` — Number of slides to generate (default: 10)
+- `audience` — Target audience: executives | engineers | students | general
+```
+
+---
+
+## Full example
+
+```yaml
+---
+name: pptx
+description: >
+  Creates a PowerPoint presentation (.pptx) from a topic description.
+  Use when the user asks to "make a presentation", "create slides", or mentions .pptx.
+  Trigger with "create a presentation about X", "make slides for Y", or /pptx.
+
+parameters:
+  required:
+    - name: topic
+      description: "Main subject or title of the presentation"
+  optional:
+    - name: slides
+      description: "Number of slides to generate"
+      default: "10"
+    - name: audience
+      description: "Target audience (e.g. executives, engineers, students)"
+---
+
+## Instructions
+
+Create a complete, well-structured PowerPoint presentation...
+```
+
+See [`examples/pptx/SKILL.md`](/examples/pptx/SKILL.md) and
+[`examples/account-research/SKILL.md`](/examples/account-research/SKILL.md)
+for complete reference implementations.
+
+---
+
+## Try the demo
+
+Open [`demo/index.html`](/demo/index.html) in any browser — no server needed.
+Type `/pptx` in the chat input to see the guided parameter template in action.
+
+---
+
+## Future work
+
+- **Typed parameters** — a `type: enum` field to render dropdowns instead of
+  free-text fields
+- **Server-side validation** — a dedicated `activate_skill(name, params)` MCP
+  tool that validates required parameters before injecting the SKILL.md
+- **Telemetry** — measuring task-completion rate with vs. without guided input

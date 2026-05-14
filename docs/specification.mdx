@@ -30,6 +30,7 @@ The `SKILL.md` file must contain YAML frontmatter followed by Markdown content.
 | `compatibility` | No | Max 500 characters. Indicates environment requirements (intended product, system packages, network access, etc.). |
 | `metadata` | No | Arbitrary key-value mapping for additional metadata. |
 | `allowed-tools` | No | Space-separated string of pre-approved tools the skill may use. (Experimental) |
+| `parameters` | No | Structured parameter definitions for client-side auto-fill. See [Skill Parameters](/skill-creation/parameters). |
 
 <Card>
 **Minimal example:**
@@ -172,6 +173,31 @@ The optional `allowed-tools` field:
 allowed-tools: Bash(git:*) Bash(jq:*) Read
 ```
 </Card>
+
+#### `parameters` field
+
+The optional `parameters` field enables **client-side guided input** when users invoke
+a skill via `/skill-name`. Supporting clients render a prompt template with required
+and optional parameter fields before the model ever sees the message.
+
+See the [Skill Parameters](/skill-creation/parameters) guide for full schema
+documentation, validation rules, and examples.
+
+<Card>
+**Example:**
+```yaml
+parameters:
+  required:
+    - name: topic
+      description: "Main subject or title of the presentation"
+  optional:
+    - name: slides
+      description: "Number of slides to generate"
+      default: "10"
+```
+</Card>
+
+> Clients that do not implement this extension safely ignore the `parameters:` key.
 
 ### Body content
 

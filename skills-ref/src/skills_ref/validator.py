@@ -10,6 +10,8 @@ from .parser import find_skill_md, parse_frontmatter
 MAX_SKILL_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
 MAX_COMPATIBILITY_LENGTH = 500
+MAX_PARAM_NAME_LENGTH = 64
+MAX_PARAM_DESCRIPTION_LENGTH = 120
 
 # Allowed frontmatter fields per Agent Skills Spec
 ALLOWED_FIELDS = {
@@ -19,6 +21,7 @@ ALLOWED_FIELDS = {
     "allowed-tools",
     "metadata",
     "compatibility",
+    "parameters",
 }
 
 
@@ -101,6 +104,115 @@ def _validate_compatibility(compatibility: str) -> list[str]:
     return errors
 
 
+def _validate_parameter_list(raw: object, block: str) -> list[str]:
+    """Validate a ``required`` or ``optional`` parameter list."""
+    errors: list[str] = []
+
+    if not isinstance(raw, list):
+        errors.append(f"parameters.{block} must be a list")
+        return errors
+
+    seen_names: set[str] = set()
+
+    for i, item in enumerate(raw):
+        prefix = f"parameters.{block}[{i}]"
+
+        if not isinstance(item, dict):
+            errors.append(f"{prefix} must be a mapping")
+            continue
+
+        # name
+        if "name" not in item:
+            errors.append(f"{prefix} is missing required key 'name'")
+        else:
+            pname = str(item["name"])
+            if not pname.strip():
+                errors.append(f"{prefix}.name must be a non-empty string")
+            elif len(pname) > MAX_PARAM_NAME_LENGTH:
+                errors.append(
+                    f"{prefix}.name '{pname}' exceeds "
+                    f"{MAX_PARAM_NAME_LENGTH} character limit"
+                )
+            elif not all(c.isalnum() or c == "_" for c in pname):
+                errors.append(
+                    f"{prefix}.name '{pname}' must contain only "
+                    "letters, digits, and underscores"
+                )
+            elif pname in seen_names:
+                errors.append(
+                    f"Duplicate parameter name '{pname}' in parameters.{block}"
+                )
+            else:
+                seen_names.add(pname)
+
+        # description
+        if "description" not in item:
+            errors.append(f"{prefix} is missing required key 'description'")
+        else:
+            pdesc = str(item["description"])
+            if not pdesc.strip():
+                errors.append(f"{prefix}.description must be a non-empty string")
+            elif len(pdesc) > MAX_PARAM_DESCRIPTION_LENGTH:
+                errors.append(
+                    f"{prefix}.description exceeds "
+                    f"{MAX_PARAM_DESCRIPTION_LENGTH} character limit "
+                    f"(keep it short — it appears as an inline hint)"
+                )
+
+        # default (only meaningful on optional params, but not forbidden on required)
+        if "default" in item and item["default"] is not None:
+            if not isinstance(item["default"], (str, int, float, bool)):
+                errors.append(f"{prefix}.default must be a scalar string value")
+
+    return errors
+
+
+def _validate_parameters(raw: object) -> list[str]:
+    """Validate the top-level ``parameters:`` frontmatter block."""
+    errors: list[str] = []
+
+    if not isinstance(raw, dict):
+        errors.append(
+            f"'parameters' frontmatter key must be a mapping, "
+            f"got {type(raw).__name__}"
+        )
+        return errors
+
+    allowed_param_keys = {"required", "optional"}
+    extra = set(raw.keys()) - allowed_param_keys
+    if extra:
+        errors.append(
+            f"Unexpected keys in parameters block: {', '.join(sorted(extra))}. "
+            f"Only 'required' and 'optional' are allowed."
+        )
+
+    if "required" in raw:
+        errors.extend(_validate_parameter_list(raw["required"], "required"))
+    if "optional" in raw:
+        errors.extend(_validate_parameter_list(raw["optional"], "optional"))
+
+    # Check for duplicate names across required and optional
+    if "required" in raw and "optional" in raw:
+        req_names = {
+            str(p["name"])
+            for p in raw["required"]
+            if isinstance(p, dict) and "name" in p
+        }
+        opt_names = {
+            str(p["name"])
+            for p in raw["optional"]
+            if isinstance(p, dict) and "name" in p
+        }
+        overlap = req_names & opt_names
+        if overlap:
+            errors.append(
+                f"Parameter name(s) appear in both required and optional: "
+                f"{', '.join(sorted(overlap))}"
+            )
+
+    return errors
+
+
 def _validate_metadata_fields(metadata: dict) -> list[str]:
     """Validate that only allowed fields are present."""
     errors = []
@@ -143,6 +255,9 @@ def validate_metadata(metadata: dict, skill_dir: Optional[Path] = None) -> list[
 
     if "compatibility" in metadata:
         errors.extend(_validate_compatibility(metadata["compatibility"]))
+
+    if "parameters" in metadata:
+        errors.extend(_validate_parameters(metadata["parameters"]))
 
     return errors
 
